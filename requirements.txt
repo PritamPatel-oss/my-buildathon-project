@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+anthropic
+razorpay
+python-dotenv
+pytest
+httpx
