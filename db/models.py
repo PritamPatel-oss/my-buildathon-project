@@ -1,9 +1,13 @@
 # db/models.py
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
 from sqlalchemy.orm import declarative_base
-from datetime import datetime
+from datetime import datetime, timezone
 
 Base = declarative_base()
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 
 
 class Transaction(Base):
@@ -16,7 +20,7 @@ class Transaction(Base):
     currency = Column(String, default="INR")
     status = Column(String, nullable=False)  # created, failed, pending, recovered, lost
     failure_reason_raw = Column(String, nullable=True)  # raw gateway error, if any
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
 
 class RecoveryAttempt(Base):
@@ -25,11 +29,11 @@ class RecoveryAttempt(Base):
     id = Column(Integer, primary_key=True)
     transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=False)
 
-    # AI stage
+    # Diagnosis stage
     ai_diagnosis = Column(String, nullable=True)
     ai_recommended_action = Column(String, nullable=True)
     ai_confidence = Column(Float, nullable=True)
-    ai_raw_response = Column(String, nullable=True)  # full JSON for debugging/audit
+    ai_raw_response = Column(String, nullable=True)  # full raw string for debugging/audit
 
     # Policy stage
     policy_decision = Column(String, nullable=False)  # allowed, blocked
@@ -42,4 +46,4 @@ class RecoveryAttempt(Base):
     payment_link_id = Column(String, nullable=True)
 
     amount_recovered = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)

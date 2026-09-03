@@ -1,6 +1,6 @@
 # scripts/seed_data.py
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from db.database import SessionLocal, init_db
 from db.models import Transaction
 
@@ -26,7 +26,7 @@ def generate_transactions(n=25):
             currency="INR",
             status=status,
             failure_reason_raw=random.choice(FAILURE_REASONS) if status == "failed" else None,
-            created_at=datetime.utcnow() - timedelta(hours=random.randint(1, 72)),
+            created_at=datetime.now(timezone.utc) - timedelta(hours=random.randint(1, 72)),
         )
         db.add(txn)
     db.commit()
