@@ -1,7 +1,4 @@
 # services/ai_diagnosis.py
-import os
-import json
-import anthropic
 
 DIAGNOSIS_CATEGORIES = [
     "insufficient_funds",
@@ -13,61 +10,52 @@ DIAGNOSIS_CATEGORIES = [
     "unknown",
 ]
 
-_client = None
-
-
-def _get_client() -> anthropic.Anthropic:
-    # Lazy init: missing key surfaces as a caught exception -> AI_ERROR fallback,
-    # not a crash at import time. Keeps the module importable (and testable) with no key set.
-    global _client
-    if _client is None:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY environment variable not set")
-        _client = anthropic.Anthropic(api_key=api_key)
-    return _client
-
 
 def diagnose_transaction(failure_reason_raw: str, amount: float) -> dict:
     """
-    Calls Claude to diagnose the failure reason.
-    Returns: {"diagnosis": str, "confidence": float, "raw_response": str}
-    On any failure, returns diagnosis='unknown', confidence=0.0,
-    raw_response starting with 'AI_ERROR:' (this prefix is load-bearing —
-    the orchestrator checks it to trigger the fail-safe path).
+    Local deterministic diagnosis engine.
+
+    No external API or API key is required.
+    Returns the same response structure expected by the
+    recovery orchestrator.
     """
-    prompt = f"""A payment failed with this raw gateway reason: "{failure_reason_raw}"
-Transaction amount: {amount} INR
 
-Classify the failure into exactly one of these categories:
-{", ".join(DIAGNOSIS_CATEGORIES)}
+    reason = (failure_reason_raw or "").strip().lower()
 
-Respond with ONLY valid JSON, no other text:
-{{"diagnosis": "<category>", "confidence": <0.0 to 1.0>}}"""
+    # Direct/known gateway reasons
+    if "insufficient" in reason or "insufficient_funds" in reason:
+        diagnosis = "insufficient_funds"
 
-    try:
-        client = _get_client()
-        response = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw_text = response.content[0].text.strip()
-        parsed = json.loads(raw_text)
+    elif "expired" in reason or "card_expired" in reason:
+        diagnosis = "card_expired"
 
-        diagnosis = parsed.get("diagnosis", "unknown")
-        if diagnosis not in DIAGNOSIS_CATEGORIES:
-            diagnosis = "unknown"
+    elif "bank" in reason and "declin" in reason:
+        diagnosis = "bank_declined"
 
-        return {
-            "diagnosis": diagnosis,
-            "confidence": float(parsed.get("confidence", 0.0)),
-            "raw_response": raw_text,
-        }
+    elif "timeout" in reason or "timed_out" in reason:
+        diagnosis = "payment_timeout"
 
-    except Exception as e:
-        return {
-            "diagnosis": "unknown",
-            "confidence": 0.0,
-            "raw_response": f"AI_ERROR: {str(e)}",
-        }
+    elif "otp" in reason:
+        diagnosis = "invalid_otp"
+
+    elif (
+        "network" in reason
+        or "connection" in reason
+        or "connectivity" in reason
+    ):
+        diagnosis = "network_error"
+
+    elif "declin" in reason:
+        diagnosis = "bank_declined"
+
+    else:
+        diagnosis = "unknown"
+
+    return {
+        "diagnosis": diagnosis,
+        "confidence": 0.95 if diagnosis != "unknown" else 0.50,
+        "raw_response": (
+            f"LOCAL_DIAGNOSIS: classified '{failure_reason_raw}' "
+            f"as '{diagnosis}'"
+        ),
+    }

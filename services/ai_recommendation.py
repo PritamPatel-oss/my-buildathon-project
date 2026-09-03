@@ -1,60 +1,56 @@
 # services/ai_recommendation.py
-import os
-import json
-import anthropic
+
 from services.policy_engine import ALLOWED_ACTIONS
-
-_client = None
-
-
-def _get_client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY environment variable not set")
-        _client = anthropic.Anthropic(api_key=api_key)
-    return _client
 
 
 def recommend_action(diagnosis: str, amount: float) -> dict:
     """
-    Calls Claude to recommend a recovery action, constrained to ALLOWED_ACTIONS.
-    Returns: {"action": str, "confidence": float, "raw_response": str}
-    On any failure, returns action=None (caller must handle fallback).
+    Local deterministic recovery recommendation engine.
+
+    No external API or API key is required.
+    Returns the same response structure expected by the
+    recovery orchestrator.
     """
-    prompt = f"""A payment failed with diagnosis: "{diagnosis}"
-Transaction amount: {amount} INR
 
-Choose exactly ONE recovery action from this list:
-{", ".join(ALLOWED_ACTIONS)}
+    diagnosis = (diagnosis or "").strip().lower()
 
-Respond with ONLY valid JSON, no other text:
-{{"action": "<action>", "confidence": <0.0 to 1.0>, "reasoning": "<short reason>"}}"""
+    # Currently the policy engine allows only this action.
+    if diagnosis in [
+        "insufficient_funds",
+        "card_expired",
+        "bank_declined",
+        "payment_timeout",
+        "invalid_otp",
+        "network_error",
+    ]:
+        action = "resend_payment_link"
+        confidence = 0.95
+        reason = f"Recovery link recommended for {diagnosis}."
 
-    try:
-        client = _get_client()
-        response = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw_text = response.content[0].text.strip()
-        parsed = json.loads(raw_text)
-
-        action = parsed.get("action")
-        if action not in ALLOWED_ACTIONS:
-            action = None  # invalid AI output, caller falls back
-
-        return {
-            "action": action,
-            "confidence": float(parsed.get("confidence", 0.0)),
-            "raw_response": raw_text,
-        }
-
-    except Exception as e:
+    else:
+        # Unknown diagnosis should not automatically trigger recovery.
         return {
             "action": None,
             "confidence": 0.0,
-            "raw_response": f"AI_ERROR: {str(e)}",
+            "raw_response": (
+                f"LOCAL_RECOMMENDATION: no safe action for diagnosis '{diagnosis}'"
+            ),
         }
+
+    # Final safety check against the policy engine's allowed actions.
+    if action not in ALLOWED_ACTIONS:
+        return {
+            "action": None,
+            "confidence": 0.0,
+            "raw_response": (
+                f"LOCAL_RECOMMENDATION: action '{action}' is not allowed"
+            ),
+        }
+
+    return {
+        "action": action,
+        "confidence": confidence,
+        "raw_response": (
+            f"LOCAL_RECOMMENDATION: {action} | {reason}"
+        ),
+    }
