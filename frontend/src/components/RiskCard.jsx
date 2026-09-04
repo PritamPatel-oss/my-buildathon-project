@@ -11,28 +11,33 @@ export default function RiskCard({ transaction, apiBase }) {
   const runRecovery = async () => {
     setRunning(true);
 
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("recoverai_token");
 
-    const res = await fetch(
-      `${apiBase}/transactions/${transaction.id}/process-recovery`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
+    try {
+      const res = await fetch(
+        `${apiBase}/transactions/${transaction.id}/process-recovery`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
-    const data = await res.json();
-    setResult(data);
-    setRunning(false);
+      const data = await res.json();
+      setResult(data);
+    } catch (err) {
+      setResult({ outcome: "execution_failed", error: err.message });
+    } finally {
+      setRunning(false);
+    }
   };
 
   const outcomeColor = {
-    executed: "text-green-400",
-    blocked: "text-red-400",
-    execution_failed: "text-red-400",
-  }[result?.outcome];
+    executed: "text-emerald-400",
+    blocked: "text-rose-400",
+    execution_failed: "text-rose-400",
+  }[result?.outcome] || "text-slate-400";
 
   return (
     <div className="border border-slate-700 rounded px-5 py-4 bg-slate-800/50">
@@ -44,7 +49,7 @@ export default function RiskCard({ transaction, apiBase }) {
           </p>
         </div>
         <div className="text-right">
-          <p className="font-mono text-lg">₹{transaction.amount.toLocaleString("en-IN")}</p>
+          <p className="font-mono text-lg">₹{transaction.amount?.toLocaleString("en-IN")}</p>
           <p className={`text-xs mt-0.5 ${statusColor}`}>{transaction.status}</p>
         </div>
       </div>
@@ -63,22 +68,22 @@ export default function RiskCard({ transaction, apiBase }) {
         <div className="mt-4 pt-4 border-t border-slate-700 space-y-1.5 text-sm">
           <p>
             <span className="text-slate-500">Diagnosis: </span>
-            <span className="text-slate-200">{result.attempt.ai_diagnosis}</span>
+            <span className="text-slate-200">{result?.attempt?.ai_diagnosis || "—"}</span>
           </p>
           <p>
             <span className="text-slate-500">Recommended action: </span>
-            <span className="text-slate-200">{result.attempt.ai_recommended_action || "none"}</span>
+            <span className="text-slate-200">{result?.attempt?.ai_recommended_action || "none"}</span>
           </p>
           <p>
             <span className="text-slate-500">Policy: </span>
-            <span className={result.attempt.policy_decision === "allowed" ? "text-green-400" : "text-red-400"}>
-              {result.attempt.policy_decision}
+            <span className={result?.attempt?.policy_decision === "allowed" ? "text-emerald-400" : "text-rose-400"}>
+              {result?.attempt?.policy_decision || "—"}
             </span>
-            <span className="text-slate-500"> — {result.attempt.policy_reason}</span>
+            <span className="text-slate-500"> — {result?.attempt?.policy_reason || result?.error || "none"}</span>
           </p>
           <p>
             <span className="text-slate-500">Outcome: </span>
-            <span className={outcomeColor}>{result.outcome}</span>
+            <span className={outcomeColor}>{result?.outcome || "unknown"}</span>
           </p>
         </div>
       )}

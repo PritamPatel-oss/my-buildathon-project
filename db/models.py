@@ -23,6 +23,7 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # merchant/user owner
     razorpay_payment_id = Column(String, nullable=True)  # filled after real API call
     customer_email = Column(String, nullable=False)
     amount = Column(Float, nullable=False)
@@ -30,6 +31,7 @@ class Transaction(Base):
     status = Column(String, nullable=False)  # created, failed, pending, recovered, lost
     failure_reason_raw = Column(String, nullable=True)  # raw gateway error, if any
     created_at = Column(DateTime, default=_utcnow)
+
 
 
 class RecoveryAttempt(Base):

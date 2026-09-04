@@ -23,24 +23,33 @@ function formatTime(iso) {
   });
 }
 
-export default function AuditTrail({ apiBase }) {
+export default function AuditTrail({ apiBase, token }) {
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const activeToken = token || localStorage.getItem("recoverai_token");
 
     fetch(`${apiBase}/transactions/audit/all`, {
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${activeToken}`,
       },
     })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error("Unauthorized");
+        return res.json();
+      })
       .then((data) => {
-        setAttempts(data);
+        setAttempts(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        setAttempts([]);
+      })
+      .finally(() => {
         setLoading(false);
       });
-  }, [apiBase]);
+  }, [apiBase, token]);
+
 
   if (loading) {
     return <p className="text-slate-500">Loading audit trail...</p>;

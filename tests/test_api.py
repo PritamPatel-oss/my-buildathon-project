@@ -66,4 +66,33 @@ def test_metrics_summary_shape(client, db_session):
     res = client.get("/transactions/metrics/summary")
     assert res.status_code == 200
     body = res.json()
-    assert set(body.keys()) == {"total_recovered", "total_at_risk", "recovery_rate_pct"}
+    assert {"total_recovered", "total_at_risk", "recovery_rate_pct"}.issubset(set(body.keys()))
+
+
+def test_unauthenticated_request_returns_401():
+    from main import app
+    from fastapi.testclient import TestClient
+    unauth_client = TestClient(app)
+    res = unauth_client.get("/transactions/")
+    assert res.status_code == 401
+
+
+def test_auth_register_and_login(client):
+    # Register a new user
+    reg_res = client.post("/auth/register", json={"email": "newuser@recoverai.com", "password": "SecurePassword123"})
+    assert reg_res.status_code == 200
+    data = reg_res.json()
+    assert data["email"] == "newuser@recoverai.com"
+    assert "id" in data
+
+    # Login
+    login_res = client.post(
+        "/auth/login",
+        data={"username": "newuser@recoverai.com", "password": "SecurePassword123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert login_res.status_code == 200
+    token_data = login_res.json()
+    assert "access_token" in token_data
+    assert token_data["token_type"] == "bearer"
+

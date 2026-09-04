@@ -1,13 +1,44 @@
 // src/context/AuthContext.jsx
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useCallback } from "react";
 
 const AuthContext = createContext(null);
-const API_BASE = "http://localhost:8000";
+export const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem("recoverai_token"));
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const logout = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem("recoverai_token");
+  }, []);
+
+  // Centralized authenticated fetch with 401 auto-handling
+  const authFetch = useCallback(
+    async (endpoint, options = {}) => {
+      const currentToken = token || localStorage.getItem("recoverai_token");
+      const url = endpoint.startsWith("http") ? endpoint : `${API_BASE}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
+      
+      const headers = {
+        ...options.headers,
+        ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
+      };
+
+      try {
+        const res = await fetch(url, { ...options, headers });
+        if (res.status === 401) {
+          logout();
+          throw new Error("Session expired. Please sign in again.");
+        }
+        return res;
+      } catch (err) {
+        throw err;
+      }
+    },
+    [token, logout]
+  );
 
   useEffect(() => {
     if (!token) {
@@ -23,15 +54,12 @@ export function AuthProvider({ children }) {
       })
       .then((data) => setUser(data))
       .catch(() => {
-        setToken(null);
-        localStorage.removeItem("recoverai_token");
+        logout();
       })
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, logout]);
 
   async function login(email, password) {
-    // FastAPI's OAuth2PasswordRequestForm expects x-www-form-urlencoded
-    // with a "username" field, even though we're sending an email.
     const body = new URLSearchParams();
     body.append("username", email);
     body.append("password", password);
@@ -63,14 +91,19 @@ export function AuthProvider({ children }) {
     await login(email, password);
   }
 
-  function logout() {
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem("recoverai_token");
-  }
-
   return (
-    <AuthContext.Provider value={{ token, user, loading, login, register, logout }}>
+    <AuthContext.Provider
+      value={{
+        token,
+        user,
+        loading,
+        login,
+        register,
+        logout,
+        authFetch,
+        apiBase: API_BASE,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -81,3 +114,4 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 }
+

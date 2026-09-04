@@ -1,7 +1,7 @@
 # routers/auth.py
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 from sqlalchemy.orm import Session
 
 from db.models import User
@@ -22,11 +22,11 @@ class RegisterRequest(BaseModel):
 
 
 class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email: str
 
-    class Config:
-        from_attributes = True
 
 
 @router.post("/register", response_model=UserOut)

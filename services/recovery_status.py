@@ -15,9 +15,11 @@ def refresh_payment_status(db: Session, attempt_id: int) -> dict:
 
     status = result["response"].get("status")
     if status == "paid":
-        attempt.amount_recovered = result["response"].get("amount_paid", 0) / 100
+        attempt.amount_recovered = float(result["response"].get("amount_paid", 0)) / 100.0
         txn = db.query(Transaction).filter(Transaction.id == attempt.transaction_id).first()
-        txn.status = "recovered"
+        if txn:
+            txn.status = "recovered"
         db.commit()
 
     return {"status": status}
+

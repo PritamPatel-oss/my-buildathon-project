@@ -1,93 +1,229 @@
 // src/App.jsx
-import { useEffect, useState } from "react";
-import RiskCard from "./components/RiskCard";
-import AuditTrail from "./components/AuditTrail";
+import { useEffect, useState, useCallback } from "react";
+import { useAuth } from "./context/AuthContext";
+import Sidebar from "./components/Sidebar";
+import Topbar from "./components/Topbar";
+import DashboardView from "./pages/DashboardView";
+import TransactionsView from "./pages/TransactionsView";
+import AtRiskView from "./pages/AtRiskView";
+import RecoveryView from "./pages/RecoveryView";
+import AuditTrailView from "./pages/AuditTrailView";
+import MetricsView from "./pages/MetricsView";
+import SettingsView from "./pages/SettingsView";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import { useAuth } from "./context/AuthContext";
+import TransactionDetailModal from "./components/TransactionDetailModal";
+import NewTransactionModal from "./components/NewTransactionModal";
 
-const API_BASE = "http://localhost:8000";
+function DashboardLayout() {
+  const { authFetch } = useAuth();
+  const [currentView, setView] = useState("dashboard");
 
-function Dashboard() {
-  const { token, user, logout } = useAuth();
+  // Data states
+  const [transactions, setTransactions] = useState([]);
   const [atRisk, setAtRisk] = useState({ total_at_risk: 0, transactions: [] });
+  const [metrics, setMetrics] = useState(null);
+  const [auditAttempts, setAuditAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("risk"); // "risk" | "audit"
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Modal / Interaction states
+  const [selectedTxn, setSelectedTxn] = useState(null);
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [runningTxnId, setRunningTxnId] = useState(null);
+
+  const loadAllData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    try {
+      const [txnsRes, riskRes, metricsRes, auditRes] = await Promise.all([
+        authFetch("/transactions/"),
+        authFetch("/transactions/risk/at-risk"),
+        authFetch("/transactions/metrics/summary"),
+        authFetch("/transactions/audit/all"),
+      ]);
+
+      const [txnsData, riskData, metricsData, auditData] = await Promise.all([
+        txnsRes.json().catch(() => []),
+        riskRes.json().catch(() => ({ total_at_risk: 0, transactions: [] })),
+        metricsRes.json().catch(() => null),
+        auditRes.json().catch(() => []),
+      ]);
+
+      if (Array.isArray(txnsData)) setTransactions(txnsData);
+      if (riskData && typeof riskData === "object") setAtRisk(riskData);
+      if (metricsData && typeof metricsData === "object") setMetrics(metricsData);
+      if (Array.isArray(auditData)) setAuditAttempts(auditData);
+    } catch (err) {
+      console.error("Data load error:", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [authFetch]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/transactions/risk/at-risk`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        setAtRisk(data);
-        setLoading(false);
+    loadAllData();
+  }, [loadAllData]);
+
+  // Quick 1-click recovery handler from tables/cards
+  const handleRunRecovery = async (txnId) => {
+    setRunningTxnId(txnId);
+    try {
+      const res = await authFetch(`/transactions/${txnId}/process-recovery`, {
+        method: "POST",
       });
-  }, [token]);
+      const data = await res.json();
+      await loadAllData(true);
+      // Open transaction in detail view to inspect result
+      const updatedTxn = transactions.find((t) => t.id === txnId) || { id: txnId, status: "processing" };
+      setSelectedTxn(updatedTxn);
+    } catch (err) {
+      alert(`Recovery execution failed: ${err.message}`);
+    } finally {
+      setRunningTxnId(null);
+    }
+  };
+
+  const handleSelectTxnId = (id) => {
+    const found = transactions.find((t) => t.id === id);
+    if (found) setSelectedTxn(found);
+    else setSelectedTxn({ id, status: "unknown", customer_email: "Loading..." });
+  };
+
+  const viewTitles = {
+    dashboard: {
+      title: "Recovery Command Center",
+      subtitle: "Autonomous revenue protection, policy bounding, and gateway telemetry",
+    },
+    transactions: {
+      title: "Transaction Ledger",
+      subtitle: "Universal merchant ledger with error classifications and recovery state",
+    },
+    "at-risk": {
+      title: "At-Risk Capital Queue",
+      subtitle: "Prioritized orders leaking revenue requiring immediate AI recovery",
+    },
+    recovery: {
+      title: "Autonomous Recovery Pipeline",
+      subtitle: "Interactive execution sandbox with live Razorpay payment link generation",
+    },
+    audit: {
+      title: "Regulatory Audit Trail",
+      subtitle: "Verifiable algorithmic logs, confidence metrics, and policy guard decisions",
+    },
+    metrics: {
+      title: "Executive Analytics",
+      subtitle: "Performance indicators, yield rates, and policy block classifications",
+    },
+    settings: {
+      title: "Policy & System Settings",
+      subtitle: "Safety caps, retry boundaries, allowed actions, and gateway bindings",
+    },
+  };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100">
-      <header className="border-b border-slate-700 px-8 py-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">RecoverAI</h1>
-          <p className="text-slate-400 text-sm mt-1">Revenue recovery, diagnosed and policy-bounded.</p>
-        </div>
-        <div className="flex items-center gap-3 text-sm">
-          {user && <span className="text-slate-400">{user.email}</span>}
-          <button
-            onClick={logout}
-            className="border border-slate-700 rounded px-3 py-1.5 hover:bg-slate-800 transition-colors"
-          >
-            Log out
-          </button>
-        </div>
-      </header>
+    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans antialiased selection:bg-amber-500 selection:text-slate-950">
+      {/* Navigation Sidebar */}
+      <Sidebar currentView={currentView} setView={setView} />
 
-      <main className="px-8 py-8 max-w-4xl">
-        <div className="mb-6 flex gap-1 border border-slate-700 rounded w-fit p-1">
-          <button
-            onClick={() => setView("risk")}
-            className={`px-3 py-1.5 text-sm rounded transition-colors ${
-              view === "risk" ? "bg-slate-700 text-slate-100" : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            Risk queue
-          </button>
-          <button
-            onClick={() => setView("audit")}
-            className={`px-3 py-1.5 text-sm rounded transition-colors ${
-              view === "audit" ? "bg-slate-700 text-slate-100" : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            Audit trail
-          </button>
-        </div>
+      {/* Main Workspace Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <Topbar
+          title={viewTitles[currentView]?.title || "RecoverAI"}
+          subtitle={viewTitles[currentView]?.subtitle}
+          onRefresh={() => loadAllData(true)}
+          onNewTransaction={() => setShowNewModal(true)}
+          refreshing={refreshing}
+        />
 
-        {view === "risk" ? (
-          <>
-            <div className="mb-8">
-              <p className="text-slate-400 text-sm">Total revenue at risk</p>
-              <p className="font-mono text-4xl text-amber-400 mt-1">
-                ₹{atRisk.total_at_risk.toLocaleString("en-IN")}
-              </p>
-            </div>
-
-            {loading ? (
-              <p className="text-slate-500">Loading transactions...</p>
-            ) : atRisk.transactions.length === 0 ? (
-              <p className="text-slate-500">No transactions currently at risk.</p>
-            ) : (
-              <div className="space-y-3">
-                {atRisk.transactions.map((txn) => (
-                  <RiskCard key={txn.id} transaction={txn} apiBase={API_BASE} token={token} />
-                ))}
+        <main className="flex-1 overflow-y-auto p-8 bg-slate-950/40">
+          {loading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="flex items-center gap-3 text-slate-400 text-sm">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                <span>Loading RecoverAI workspace...</span>
               </div>
-            )}
-          </>
-        ) : (
-          <AuditTrail apiBase={API_BASE} token={token} />
-        )}
-      </main>
+            </div>
+          ) : (
+            <>
+              {currentView === "dashboard" && (
+                <DashboardView
+                  metrics={metrics}
+                  transactions={transactions}
+                  atRiskTransactions={atRisk.transactions || []}
+                  recentAttempts={auditAttempts}
+                  onSelectTxn={setSelectedTxn}
+                  onRunRecovery={handleRunRecovery}
+                  runningTxnId={runningTxnId}
+                  setView={setView}
+                />
+              )}
+
+              {currentView === "transactions" && (
+                <TransactionsView
+                  transactions={transactions}
+                  onSelectTxn={setSelectedTxn}
+                  onRunRecovery={handleRunRecovery}
+                  runningTxnId={runningTxnId}
+                />
+              )}
+
+              {currentView === "at-risk" && (
+                <AtRiskView
+                  transactions={atRisk.transactions || []}
+                  totalAtRisk={atRisk.total_at_risk}
+                  onSelectTxn={setSelectedTxn}
+                  onRunRecovery={handleRunRecovery}
+                  runningTxnId={runningTxnId}
+                />
+              )}
+
+              {currentView === "recovery" && (
+                <RecoveryView
+                  transactions={transactions}
+                  onRefreshAll={() => loadAllData(true)}
+                />
+              )}
+
+              {currentView === "audit" && (
+                <AuditTrailView
+                  auditAttempts={auditAttempts}
+                  loading={refreshing}
+                  onSelectTxnId={handleSelectTxnId}
+                />
+              )}
+
+              {currentView === "metrics" && (
+                <MetricsView
+                  metrics={metrics}
+                  auditAttempts={auditAttempts}
+                  transactions={transactions}
+                />
+              )}
+
+              {currentView === "settings" && <SettingsView />}
+            </>
+          )}
+        </main>
+      </div>
+
+      {/* Transaction Detail Modal */}
+      {selectedTxn && (
+        <TransactionDetailModal
+          transaction={selectedTxn}
+          onClose={() => setSelectedTxn(null)}
+          onRunRecovery={handleRunRecovery}
+          runningRecovery={runningTxnId === selectedTxn.id}
+        />
+      )}
+
+      {/* New Test Transaction Modal */}
+      {showNewModal && (
+        <NewTransactionModal
+          onClose={() => setShowNewModal(false)}
+          onSuccess={() => loadAllData(true)}
+        />
+      )}
     </div>
   );
 }
@@ -98,8 +234,11 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
-        <p className="text-slate-500">Loading...</p>
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+        <div className="flex items-center gap-3 text-slate-400 text-sm">
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+          <span>Authenticating RecoverAI session...</span>
+        </div>
       </div>
     );
   }
@@ -112,5 +251,6 @@ export default function App() {
     );
   }
 
-  return <Dashboard />;
+  return <DashboardLayout />;
 }
+

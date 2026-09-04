@@ -16,7 +16,7 @@ def process_recovery(
     transaction: Transaction,
     simulate_ai_failure: bool = False,
     simulate_invalid_action: bool = False,
-) -> dict:
+) -> RecoveryAttempt:
 
     # STEP 1: AI DIAGNOSIS
     if simulate_ai_failure:
@@ -35,12 +35,17 @@ def process_recovery(
         )
 
     # FALLBACK 1: AI DIAGNOSIS FAILURE
-    if diagnosis_result["raw_response"].startswith("AI_ERROR"):
+    if (
+        not diagnosis_result
+        or not isinstance(diagnosis_result, dict)
+        or diagnosis_result.get("raw_response", "").startswith("AI_ERROR")
+        or diagnosis_result.get("diagnosis") in (None, "")
+    ):
         return log_recovery_attempt(
             db=db,
             transaction_id=transaction.id,
-            ai_diagnosis=diagnosis_result["diagnosis"],
-            ai_raw_response=diagnosis_result["raw_response"],
+            ai_diagnosis=diagnosis_result.get("diagnosis") if isinstance(diagnosis_result, dict) else "unknown",
+            ai_raw_response=diagnosis_result.get("raw_response", "AI_ERROR: invalid diagnosis response") if isinstance(diagnosis_result, dict) else "AI_ERROR: invalid diagnosis response",
             policy_decision="blocked",
             policy_reason=(
                 "AI diagnosis failed — blocked automatically "
@@ -57,25 +62,29 @@ def process_recovery(
     if simulate_invalid_action:
         recommendation_result = {
             "action": None,
-            "confidence": recommendation_result["confidence"],
+            "confidence": recommendation_result.get("confidence", 0.0) if isinstance(recommendation_result, dict) else 0.0,
             "raw_response": (
-                recommendation_result["raw_response"]
-                + " [DEMO: action overridden to invalid "
-                  "for fail-safe demonstration]"
+                (recommendation_result.get("raw_response", "") if isinstance(recommendation_result, dict) else "")
+                + " [DEMO: action overridden to invalid for fail-safe demonstration]"
             ),
         }
 
-    recommended_action = recommendation_result["action"]
+    recommended_action = recommendation_result.get("action") if isinstance(recommendation_result, dict) else None
 
     # FALLBACK 2: INVALID RECOMMENDATION
-    if recommended_action is None:
+    if (
+        not recommendation_result
+        or not isinstance(recommendation_result, dict)
+        or recommended_action is None
+        or recommended_action == ""
+    ):
         return log_recovery_attempt(
             db=db,
             transaction_id=transaction.id,
             ai_diagnosis=diagnosis_result["diagnosis"],
             ai_recommended_action=None,
-            ai_confidence=recommendation_result["confidence"],
-            ai_raw_response=recommendation_result["raw_response"],
+            ai_confidence=recommendation_result.get("confidence", 0.0) if isinstance(recommendation_result, dict) else 0.0,
+            ai_raw_response=recommendation_result.get("raw_response", "AI_ERROR: invalid recommendation") if isinstance(recommendation_result, dict) else "AI_ERROR: invalid recommendation",
             policy_decision="blocked",
             policy_reason=(
                 "AI recommendation invalid or failed — "
@@ -122,24 +131,10 @@ def process_recovery(
         f"txn_{transaction.id}_run_{run_marker}_attempt_{attempt_count + 1}"
     )
 
-    print(
-        "DEBUG BEFORE RAZORPAY:",
-        {
-            "amount": transaction.amount,
-            "email": transaction.customer_email,
-            "reference_id": reference_id,
-        },
-    )
-
     exec_result = create_payment_link(
         amount_inr=transaction.amount,
         email=transaction.customer_email,
         reference_id=reference_id,
-    )
-
-    print(
-        "DEBUG AFTER RAZORPAY:",
-        exec_result,
     )
 
     payment_link_id = (
@@ -147,6 +142,7 @@ def process_recovery(
         if exec_result["success"]
         else None
     )
+
 
     # STEP 5: AUDIT LOG
     return log_recovery_attempt(
