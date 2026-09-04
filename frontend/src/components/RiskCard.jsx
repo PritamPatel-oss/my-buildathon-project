@@ -52,7 +52,7 @@ export default function RiskCard({ transaction, apiBase }) {
       {result && (
         <div className="mt-4 pt-4 border-t border-slate-700 space-y-1.5 text-sm">
           <p>
-            <span className="text-slate-500">AI diagnosis: </span>
+            <span className="text-slate-500">Diagnosis: </span>
             <span className="text-slate-200">{result.attempt.ai_diagnosis}</span>
           </p>
           <p>

@@ -23,7 +23,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-900 text-slate-100">
       <header className="border-b border-slate-700 px-8 py-6">
         <h1 className="text-2xl font-semibold tracking-tight">RecoverAI</h1>
-        <p className="text-slate-400 text-sm mt-1">Revenue recovery, AI-diagnosed, policy-bounded.</p>
+        <p className="text-slate-400 text-sm mt-1">Revenue recovery, diagnosed and policy-bounded.</p>
       </header>
 
       <main className="px-8 py-8 max-w-4xl">
