@@ -111,8 +111,15 @@ def process_recovery(
         .count()
     )
 
+    # Include the transaction's created_at timestamp so re-seeding the demo
+    # dataset (which creates fresh rows with fresh timestamps) always
+    # produces reference_ids Razorpay hasn't seen before. Razorpay enforces
+    # global uniqueness on reference_id per account, independent of our
+    # local DB -- resetting our SQLite DB does not reset Razorpay's memory
+    # of previously created payment links.
+    run_marker = int(transaction.created_at.timestamp())
     reference_id = (
-        f"txn_{transaction.id}_attempt_{attempt_count + 1}"
+        f"txn_{transaction.id}_run_{run_marker}_attempt_{attempt_count + 1}"
     )
 
     print(

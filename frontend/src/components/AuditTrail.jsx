@@ -28,7 +28,13 @@ export default function AuditTrail({ apiBase }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${apiBase}/transactions/audit/all`)
+    const token = localStorage.getItem("token");
+
+    fetch(`${apiBase}/transactions/audit/all`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then((res) => res.json())
       .then((data) => {
         setAttempts(data);

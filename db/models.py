@@ -10,6 +10,15 @@ def _utcnow():
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)
+
+
 class Transaction(Base):
     __tablename__ = "transactions"
 

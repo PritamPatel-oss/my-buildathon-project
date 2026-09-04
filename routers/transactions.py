@@ -3,11 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from db.database import SessionLocal
-from db.models import Transaction, RecoveryAttempt
+from db.models import Transaction, RecoveryAttempt, User
 from services.risk_detector import get_at_risk_transactions, get_total_revenue_at_risk
 from services.recovery_orchestrator import process_recovery
 from services.recovery_status import refresh_payment_status
 from services.metrics import get_recovery_metrics
+from services.auth import get_current_user
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -23,12 +24,18 @@ def get_db():
 # ---- static routes first (see note below) -----------------------------
 
 @router.get("/")
-def list_transactions(db: Session = Depends(get_db)):
+def list_transactions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     return db.query(Transaction).order_by(Transaction.created_at.desc()).all()
 
 
 @router.get("/risk/at-risk")
-def list_at_risk(db: Session = Depends(get_db)):
+def list_at_risk(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     return {
         "total_at_risk": get_total_revenue_at_risk(db),
         "transactions": get_at_risk_transactions(db),
@@ -36,7 +43,10 @@ def list_at_risk(db: Session = Depends(get_db)):
 
 
 @router.get("/audit/all")
-def get_all_audit_attempts(db: Session = Depends(get_db)):
+def get_all_audit_attempts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     Global audit trail: every recovery attempt across every transaction,
     newest first, joined with the customer/amount for display.
@@ -69,12 +79,19 @@ def get_all_audit_attempts(db: Session = Depends(get_db)):
 
 
 @router.get("/metrics/summary")
-def metrics_summary(db: Session = Depends(get_db)):
+def metrics_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     return get_recovery_metrics(db)
 
 
 @router.post("/recovery-attempts/{attempt_id}/refresh-status")
-def refresh_status_endpoint(attempt_id: int, db: Session = Depends(get_db)):
+def refresh_status_endpoint(
+    attempt_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     result = refresh_payment_status(db, attempt_id)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -88,7 +105,11 @@ def refresh_status_endpoint(attempt_id: int, db: Session = Depends(get_db)):
 # readability, not correctness.
 
 @router.get("/{txn_id}")
-def get_transaction(txn_id: int, db: Session = Depends(get_db)):
+def get_transaction(
+    txn_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -96,7 +117,11 @@ def get_transaction(txn_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{txn_id}/audit-trail")
-def get_audit_trail(txn_id: int, db: Session = Depends(get_db)):
+def get_audit_trail(
+    txn_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     return (
         db.query(RecoveryAttempt)
         .filter(RecoveryAttempt.transaction_id == txn_id)
@@ -111,6 +136,7 @@ def process_recovery_endpoint(
     simulate_ai_failure: bool = False,
     simulate_invalid_action: bool = False,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
     if not txn:

@@ -10,9 +10,19 @@ export default function RiskCard({ transaction, apiBase }) {
 
   const runRecovery = async () => {
     setRunning(true);
-    const res = await fetch(`${apiBase}/transactions/${transaction.id}/process-recovery`, {
-      method: "POST",
-    });
+
+    const token = localStorage.getItem("token");
+
+    const res = await fetch(
+      `${apiBase}/transactions/${transaction.id}/process-recovery`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
     const data = await res.json();
     setResult(data);
     setRunning(false);
