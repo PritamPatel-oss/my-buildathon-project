@@ -32,6 +32,36 @@ export default function TransactionDetailModal({
 
   const latestAttempt = auditAttempts[0] || null;
 
+  // Identify successful recovery attempt (has positive recovered amount or execution status success)
+  const successfulAttempt = auditAttempts.find(
+    (att) => Number(att.amount_recovered) > 0 || att.execution_status === "success"
+  );
+
+  const isRecovered = transaction.status === "recovered" || Boolean(successfulAttempt);
+  const primaryAttempt = isRecovered && successfulAttempt ? successfulAttempt : latestAttempt;
+
+  // Calculate dynamic amount recovered from database/API
+  const totalAmountRecovered = auditAttempts.reduce(
+    (sum, att) => sum + (Number(att.amount_recovered) || 0),
+    0
+  );
+  const dynamicAmountRecovered =
+    totalAmountRecovered > 0
+      ? totalAmountRecovered
+      : successfulAttempt && Number(successfulAttempt.amount_recovered) > 0
+      ? Number(successfulAttempt.amount_recovered)
+      : isRecovered
+      ? Number(transaction.amount) || 0
+      : 0;
+
+  // Identify any later blocked attempts (e.g. duplicate retry blocks)
+  const laterBlockedAttempts =
+    isRecovered && successfulAttempt
+      ? auditAttempts.filter(
+          (att) => att.id > successfulAttempt.id && att.policy_decision === "blocked"
+        )
+      : [];
+
   const handleRefreshStatus = async (attemptId) => {
     setRefreshingAttemptId(attemptId);
     setRefreshMsg("");
@@ -126,77 +156,117 @@ export default function TransactionDetailModal({
           </div>
 
           {/* Recovery Diagnostic Overview */}
-          {latestAttempt ? (
+          {primaryAttempt ? (
             <div className="border border-slate-800 rounded-xl p-5 bg-slate-950/40 space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                 <div className="flex items-center gap-2">
-                  <SparklesIcon className="w-4 h-4 text-amber-400" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-                    Latest AI & Policy Diagnosis
-                  </span>
+                  {isRecovered && successfulAttempt ? (
+                    <>
+                      <ShieldCheckIcon className="w-4 h-4 text-emerald-400" />
+                      <span className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+                        Successful Recovery: Attempt #{successfulAttempt.id}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <SparklesIcon className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                        Latest AI & Policy Diagnosis (Attempt #{primaryAttempt.id})
+                      </span>
+                    </>
+                  )}
                 </div>
-                <StatusBadge status={latestAttempt.policy_decision} />
+                <StatusBadge
+                  status={
+                    isRecovered && successfulAttempt
+                      ? "recovered"
+                      : primaryAttempt.policy_decision
+                  }
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 <div>
                   <span className="text-slate-400">AI Diagnosis:</span>
                   <p className="text-slate-200 font-medium mt-0.5">
-                    {latestAttempt.ai_diagnosis || "—"}
+                    {primaryAttempt.ai_diagnosis
+                      ? primaryAttempt.ai_diagnosis.replace("_", " ")
+                      : "—"}
                   </p>
                 </div>
                 <div>
                   <span className="text-slate-400">AI Confidence:</span>
                   <p className="text-slate-200 font-mono mt-0.5">
-                    {Math.round((latestAttempt.ai_confidence || 0) * 100)}%
+                    {Math.round((primaryAttempt.ai_confidence || 0) * 100)}%
                   </p>
                 </div>
                 <div>
                   <span className="text-slate-400">Recommended Action:</span>
                   <p className="text-slate-200 font-medium mt-0.5">
-                    {latestAttempt.ai_recommended_action || "None"}
+                    {primaryAttempt.ai_recommended_action
+                      ? primaryAttempt.ai_recommended_action.replace(/_/g, " ")
+                      : "None"}
                   </p>
                 </div>
                 <div>
                   <span className="text-slate-400">Policy Reason:</span>
                   <p className="text-slate-300 mt-0.5">
-                    {latestAttempt.policy_reason || "—"}
+                    {primaryAttempt.policy_reason || "—"}
                   </p>
                 </div>
                 <div>
                   <span className="text-slate-400">Execution Status:</span>
                   <div className="mt-0.5">
-                    <StatusBadge status={latestAttempt.execution_status || "None"} />
+                    <StatusBadge
+                      status={
+                        isRecovered && successfulAttempt
+                          ? "success"
+                          : primaryAttempt.execution_status || "None"
+                      }
+                    />
                   </div>
                 </div>
                 <div>
                   <span className="text-slate-400">Amount Recovered:</span>
-                  <p className="text-emerald-400 font-semibold font-mono mt-0.5">
-                    ₹{(latestAttempt.amount_recovered || 0).toLocaleString("en-IN")}
+                  <p className="text-emerald-400 font-semibold font-mono mt-0.5 text-sm">
+                    ₹{dynamicAmountRecovered % 1 === 0
+                      ? dynamicAmountRecovered.toLocaleString("en-IN")
+                      : dynamicAmountRecovered.toFixed(2)}
                   </p>
                 </div>
               </div>
 
-              {/* Payment Link if exists */}
-              {latestAttempt.payment_link_url && (
-                <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3">
-                  <span className="text-xs text-slate-400">Test Payment Link:</span>
+              {/* Payment Link / Gateway Info */}
+              {(primaryAttempt.payment_link_url || primaryAttempt.payment_link_id) && (
+                <div className="pt-3 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="text-xs text-slate-400 flex items-center gap-1.5">
+                    <span>Gateway Link:</span>
+                    <span className="font-mono text-slate-300 text-[11px]">
+                      {primaryAttempt.payment_link_id || "Razorpay Link"}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-2">
-                    <a
-                      href={latestAttempt.payment_link_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs transition-colors"
-                    >
-                      <span>Open Payment Link</span>
-                      <ExternalLinkIcon className="w-3 h-3" />
-                    </a>
+                    {primaryAttempt.payment_link_url && (
+                      <a
+                        href={primaryAttempt.payment_link_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs transition-colors"
+                      >
+                        <span>Open Payment Link</span>
+                        <ExternalLinkIcon className="w-3 h-3" />
+                      </a>
+                    )}
                     <button
-                      onClick={() => handleRefreshStatus(latestAttempt.id)}
-                      disabled={refreshingAttemptId === latestAttempt.id}
+                      onClick={() => handleRefreshStatus(primaryAttempt.id)}
+                      disabled={refreshingAttemptId === primaryAttempt.id}
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 transition-colors"
                     >
-                      <RefreshIcon className={`w-3 h-3 ${refreshingAttemptId === latestAttempt.id ? "animate-spin" : ""}`} />
+                      <RefreshIcon
+                        className={`w-3 h-3 ${
+                          refreshingAttemptId === primaryAttempt.id ? "animate-spin" : ""
+                        }`}
+                      />
                       <span>Refresh</span>
                     </button>
                   </div>
@@ -219,6 +289,49 @@ export default function TransactionDetailModal({
             </div>
           )}
 
+          {/* Separately display later blocked duplicate attempts */}
+          {laterBlockedAttempts.length > 0 && (
+            <div className="border border-amber-500/20 bg-amber-500/5 rounded-xl p-4 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold">
+                  <ShieldCheckIcon className="w-4 h-4 text-amber-400" />
+                  <span>
+                    Subsequent Policy Block ({laterBlockedAttempts.length} duplicate attempt
+                    {laterBlockedAttempts.length > 1 ? "s" : ""})
+                  </span>
+                </div>
+                <StatusBadge status="blocked" />
+              </div>
+              <p className="text-[11px] text-slate-400">
+                The policy engine prevented duplicate recovery charges because this transaction was
+                already recovered.
+              </p>
+              <div className="space-y-1.5 pt-0.5">
+                {laterBlockedAttempts.map((att) => (
+                  <div
+                    key={att.id}
+                    className="text-xs bg-slate-900/80 border border-slate-800 rounded-lg p-2.5 flex items-start justify-between gap-3"
+                  >
+                    <div>
+                      <span className="font-mono text-amber-300 font-semibold">
+                        Attempt #{att.id}:{" "}
+                      </span>
+                      <span className="text-slate-300">
+                        {att.policy_reason || "Blocked duplicate"}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                      {new Date(att.created_at).toLocaleTimeString("en-IN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Audit History Table */}
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
@@ -238,6 +351,7 @@ export default function TransactionDetailModal({
                       <th className="px-3 py-2 font-medium">Diagnosis</th>
                       <th className="px-3 py-2 font-medium">Policy</th>
                       <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Recovered</th>
                       <th className="px-3 py-2 font-medium text-right">Action</th>
                     </tr>
                   </thead>
@@ -250,10 +364,24 @@ export default function TransactionDetailModal({
                           <StatusBadge status={att.policy_decision} />
                         </td>
                         <td className="px-3 py-2">
-                          <StatusBadge status={att.execution_status || "skipped"} />
+                          <StatusBadge
+                            status={
+                              att.execution_status ||
+                              (att.policy_decision === "blocked" ? "blocked" : "skipped")
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-2 font-mono font-medium text-emerald-400">
+                          {att.amount_recovered > 0
+                            ? `₹${
+                                att.amount_recovered % 1 === 0
+                                  ? att.amount_recovered.toLocaleString("en-IN")
+                                  : att.amount_recovered.toFixed(2)
+                              }`
+                            : "—"}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          {att.payment_link_url && (
+                          {att.payment_link_url ? (
                             <a
                               href={att.payment_link_url}
                               target="_blank"
@@ -262,6 +390,8 @@ export default function TransactionDetailModal({
                             >
                               Link ↗
                             </a>
+                          ) : (
+                            <span className="text-slate-600">—</span>
                           )}
                         </td>
                       </tr>
